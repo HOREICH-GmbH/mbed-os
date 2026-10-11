@@ -87,13 +87,13 @@ void I2C::_uninitialize(void)
         return;
     }
 
-    // i2c_free() disables peripheral clock (and other stuff depending on HAL) to save energy
+    // i2c_free() disables the peripheral clock and returns SDA and SCL to the pin reset state - analog
+    // on STM32: input buffer off, no pull, nothing driven. That is the parked state, so the pins are
+    // left there. They used to be made digital inputs again right after, which turns the input buffer
+    // back on: once the bus pull-ups lose their rail, a pin sliding through the threshold draws
+    // crowbar current for as long as the device sleeps.
     i2c_free(&_i2c);
     _is_initialized = false;
-
-    // Call i2c_free and sets pins to input explicity in order to save energy.
-    mbed::DigitalInOut(_sda, PIN_INPUT, PinMode::PullNone, 0);
-    mbed::DigitalInOut(_scl, PIN_INPUT, PinMode::PullNone, 0);
 }
 
 void I2C::ref_acquire(void)
