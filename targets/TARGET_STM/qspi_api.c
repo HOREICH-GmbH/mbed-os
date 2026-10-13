@@ -1398,7 +1398,7 @@ qspi_status_t qspi_read(qspi_t *obj, const qspi_command_t *command, void *data, 
             NVIC_SetPriority(QUADSPI_IRQn, 1);
             NVIC_EnableIRQ(QUADSPI_IRQn);
             if (HAL_QSPI_Receive_DMA(&obj->handle, data) != HAL_OK) {
-                tr_error("HAL_QSPI_Receive error %d", obj->handle.ErrorCode);
+                tr_error("HAL_QSPI_Receive error %ld", obj->handle.ErrorCode);
                 status = QSPI_STATUS_ERROR;
             }
             else {
@@ -1417,7 +1417,7 @@ qspi_status_t qspi_read(qspi_t *obj, const qspi_command_t *command, void *data, 
         }
         else {
             if (HAL_QSPI_Receive(&obj->handle, data, HAL_QSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK) {
-                tr_error("HAL_QSPI_Receive error %d", obj->handle.ErrorCode);
+                tr_error("HAL_QSPI_Receive error %ld", obj->handle.ErrorCode);
                 status = QSPI_STATUS_ERROR;
             }
         }
