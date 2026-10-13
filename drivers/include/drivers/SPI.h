@@ -28,6 +28,8 @@
 #include "platform/NonCopyable.h"
 #include "platform/CacheAlignedBuffer.h"
 
+#include <mstd_atomic>
+
 #if defined MBED_CONF_DRIVERS_SPI_COUNT_MAX && DEVICE_SPI_COUNT > MBED_CONF_DRIVERS_SPI_COUNT_MAX
 #define SPI_PERIPHERALS_USED MBED_CONF_DRIVERS_SPI_COUNT_MAX
 #elif defined DEVICE_SPI_COUNT
@@ -904,7 +906,7 @@ protected:
     /* Default character used for NULL transfers */
     char _write_fill;
     /* Select count to handle re-entrant selection */
-    volatile uint8_t _select_count = 0;
+    mstd::atomic<uint8_t> _select_count{0};
     /* True iff this object has suspended and not yet resumed. Counted once in
      * _peripheral->suspendCount, so repeated suspend()s stay idempotent. Guarded by the
      * peripheral's transfer mutex. */
