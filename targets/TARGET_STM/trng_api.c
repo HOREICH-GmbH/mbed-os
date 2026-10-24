@@ -72,6 +72,13 @@ void trng_init(trng_t *obj)
 
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RNG;
 
+#if defined(RCC_PLLSAI1_SUPPORT)
+    if (__HAL_RCC_GET_RNG_SOURCE() == RCC_RNGCLKSOURCE_PLLSAI1 && __HAL_RCC_GET_FLAG(RCC_FLAG_PLLSAI1RDY)) {
+        /* SetSysClock gave the common source 48 MHz from PLLSAI1 for USB (DEVICE_USBDEVICE): the RNG
+         * runs on it as it is. Switching to MSI or the main PLL here would take the clock away from a
+         * USB device in the middle of its session. */
+    } else
+#endif
     if (__HAL_RCC_GET_FLAG(RCC_FLAG_MSIRDY)) {
         /* MSI clock is enabled, MSI selected as RNG clock source if not alredy done */
         if (__HAL_RCC_GET_RNG_SOURCE() != RCC_RNGCLKSOURCE_MSI) {
