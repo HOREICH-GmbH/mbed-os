@@ -188,7 +188,10 @@ SECTIONS
         end = __end__;
         __mbed_sbrk_start = .;
         *(.heap*)
-        . += (ORIGIN(SRAM1) + LENGTH(SRAM1) - .);
+        /* Up to the boot stack, not to the end of SRAM1: the MSP (the ISR stack once RTX runs) grows
+         * down from __StackTop, and _sbrk hands out everything below __mbed_krbs_start - a heap that
+         * reached the top kilobyte had its blocks and its free list overwritten by every interrupt. */
+        . += (ORIGIN(SRAM1) + LENGTH(SRAM1) - MBED_CONF_TARGET_BOOT_STACK_SIZE - .);
         __mbed_krbs_start = .;
         __HeapLimit = .;
     } > SRAM1
