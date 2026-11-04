@@ -142,6 +142,7 @@
 #include "SDBlockDevice.h"
 #include "rtos/ThisThread.h"
 #include "platform/mbed_debug.h"
+#include "hal/pinmap.h"
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
@@ -258,6 +259,7 @@ SDBlockDevice::SDBlockDevice(PinName mosi, PinName miso, PinName sclk, PinName c
 #endif
 {
     _card_type = SDCARD_NONE;
+    _miso = miso;
 
     // Set default to 100kHz for initialisation and 1MHz for data transfer
     static_assert(((MBED_CONF_SD_INIT_FREQUENCY >= 100000) && (MBED_CONF_SD_INIT_FREQUENCY <= 400000)),
@@ -279,6 +281,7 @@ SDBlockDevice::SDBlockDevice(const spi_pinmap_t &spi_pinmap, PinName cs, uint64_
 #endif
 {
     _card_type = SDCARD_NONE;
+    _miso = spi_pinmap.miso_pin;
 
     // Set default to 100kHz for initialisation and 1MHz for data transfer
     static_assert(((MBED_CONF_SD_INIT_FREQUENCY >= 100000) && (MBED_CONF_SD_INIT_FREQUENCY <= 400000)),
@@ -1183,6 +1186,11 @@ void SDBlockDevice::_spi_init()
     _spi.frequency(_init_sck);
     _spi.format(8, 0);
     _spi.set_default_write_value(SPI_FILL_CHAR);
+#if MBED_CONF_SD_MISO_PULL_UP
+    // After the SPI setup, which leaves MISO floating: without a card it then reads 0xFF ("no
+    // response") at once, instead of low - not ready - for the full command timeout per command.
+    pin_mode(_miso, PullUp);
+#endif
     // Initial 74 cycles required for few cards, before selecting SPI mode
     _spi_wait(10);
     _spi.unlock();

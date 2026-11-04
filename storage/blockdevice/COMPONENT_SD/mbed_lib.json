@@ -11,6 +11,7 @@
         "init-frequency": 100000,
         "trx-frequency": 1000000,
         "crc-enabled": 0,
+        "miso-pull-up": 0,
         "test-buffer": 8192
     },
     "target_overrides": {

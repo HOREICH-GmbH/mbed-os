@@ -280,6 +280,7 @@ private:
     uint32_t _init_sck;             /**< Initial SPI frequency */
     uint32_t _transfer_sck;         /**< SPI frequency during data transfer/after initialization */
     mbed::SPI _spi;                       /**< SPI Class object */
+    PinName _miso;                  /**< Pulled up at each SPI setup with sd.miso-pull-up */
 
     /* SPI initialization function */
     void _spi_init();
