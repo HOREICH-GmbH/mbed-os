@@ -45,6 +45,9 @@ typedef enum {
     LPUART_1 = (int)LPUART1_BASE
 } UARTName;
 
+// Without it, every mbed::SPI object shares one peripheral entry (GlobalSPI): one transfer mutex and one
+// suspend count for SPI1, SPI2 and SPI3 together - an object holding select() on one blocks the others.
+#define DEVICE_SPI_COUNT 3
 typedef enum {
     SPI_1 = (int)SPI1_BASE,
     SPI_2 = (int)SPI2_BASE,
