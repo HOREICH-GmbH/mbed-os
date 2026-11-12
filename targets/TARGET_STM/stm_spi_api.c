@@ -1826,6 +1826,16 @@ uint32_t spi_irq_handler_asynch(spi_t *obj)
         // reset transfer size
         LL_SPI_SetTransferSize(SPI_INST(obj), 0);
 
+        // HAL_SPI_Transmit_*() and HAL_SPI_Receive_*() switch a 2-line SPI to simplex transmit or receive
+        // (CFG2.COMM) and leave it so. spi_master_write() and spi_master_block_write() need full duplex: after a
+        // transmit-only transfer the next blocking write waited forever for a received byte (SDBlockDevice in
+        // async mode hung on its first command), after a receive-only one the master would clock on its own
+        // once enabled. COMM is writable only while SPE is clear.
+        if (handle->Init.Direction == SPI_DIRECTION_2LINES) {
+            LL_SPI_Disable(SPI_INST(obj));
+            LL_SPI_SetTransferDirection(SPI_INST(obj), LL_SPI_FULL_DUPLEX);
+        }
+
         // HAL_SPI_TransmitReceive_IT/HAL_SPI_Transmit_IT/HAL_SPI_Receive_IT
         // function disable SPI after transfer. So we need enabled it back,
         // otherwise spi_master_block_write/spi_master_write won't work in 4-wire mode.
