@@ -777,6 +777,10 @@ mode is recommended for target MCUs with small amounts of flash and RAM.",
                 "help": "Change to 1 to use a logic level oscillator (not a crystal) on 32k LSE",
                 "value": "0"
             },
+            "can-sjw": {
+                "help": "CAN (bxCAN) resynchronization jump width in time quanta, 1..4, limited to the bit's phase segment 2. A wider jump tolerates a larger clock difference between the nodes (e.g. HSI-clocked boards).",
+                "value": 2
+            },
             "rtc-clock-source": {
                 "help": "Define the RTC clock source. USE_RTC_CLK_LSE_OR_LSI, USE_RTC_CLK_LSI, USE_RTC_CLK_HSE. LPTICKER is not available for HSE and should be removed from the target configuration.",
                 "value": "USE_RTC_CLK_LSE_OR_LSI"

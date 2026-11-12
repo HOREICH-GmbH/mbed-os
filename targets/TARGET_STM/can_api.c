@@ -1175,6 +1175,13 @@ static unsigned int can_speed(unsigned int pclk, unsigned int cclk, unsigned cha
     }
 
     if (hit) {
+        // SJW is 1..4 TQ and may not exceed phase segment 2 (both encoded as value - 1)
+        if (psjw > 3) {
+            psjw = 3;
+        }
+        if (psjw > timing_pts[bits][1]) {
+            psjw = timing_pts[bits][1];
+        }
         btr = ((timing_pts[bits][1] << CAN_BTR_TS2_Pos) & CAN_BTR_TS2) |
               ((timing_pts[bits][0] << CAN_BTR_TS1_Pos) & CAN_BTR_TS1) |
               ((psjw                << CAN_BTR_SJW_Pos) & CAN_BTR_SJW) |
@@ -1190,7 +1197,12 @@ static unsigned int can_speed(unsigned int pclk, unsigned int cclk, unsigned cha
 int can_frequency(can_t *obj, int f)
 {
     int pclk = HAL_RCC_GetPCLK1Freq();
+    // SJW in time quanta (target.can-sjw, default 2), encoded as value - 1
+#if defined(MBED_CONF_TARGET_CAN_SJW)
+    int btr = can_speed(pclk, (unsigned int)f, MBED_CONF_TARGET_CAN_SJW - 1);
+#else
     int btr = can_speed(pclk, (unsigned int)f, 1);
+#endif
     CAN_TypeDef *can = obj->CanHandle.Instance;
     uint32_t tickstart = 0;
     int status = 1;
