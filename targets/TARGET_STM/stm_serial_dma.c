@@ -247,11 +247,19 @@ int serial_dma_attach(serial_dma_t *obj, serial_t *serial, bool transmit, uint8_
     obj->context = context;
 
     // Byte wide both sides, memory incrementing, the data register not; DMA_NORMAL - stm_dma_ll makes it circular
+    // Each channel's LL view as soon as it is claimed: serial_dma_release() stops a claimed channel through it, also
+    // when the other claim fails
     if (transmit) {
         obj->tx_handle = stm_claim_dma_link(&UARTTxDMALinks[index], DMA_MEMORY_TO_PERIPH, false, true, 1, 1, DMA_NORMAL);
+        if (obj->tx_handle.hdma != NULL) {
+            obj->tx = stm_dma_ll_from_handle(&obj->tx_handle);
+        }
     }
     if (receive) {
         obj->rx_handle = stm_claim_dma_link(&UARTRxDMALinks[index], DMA_PERIPH_TO_MEMORY, false, true, 1, 1, DMA_NORMAL);
+        if (obj->rx_handle.hdma != NULL) {
+            obj->rx = stm_dma_ll_from_handle(&obj->rx_handle);
+        }
     }
     if ((transmit && obj->tx_handle.hdma == NULL) || (receive && obj->rx_handle.hdma == NULL)) {
         serial_dma_release(obj);
@@ -259,11 +267,9 @@ int serial_dma_attach(serial_dma_t *obj, serial_t *serial, bool transmit, uint8_
         return -2; // another user's, or none free
     }
     if (transmit) {
-        obj->tx = stm_dma_ll_from_handle(&obj->tx_handle);
         stm_set_dma_irq_hook(&obj->tx_handle, serial_dma_tx_irq, obj);
     }
     if (receive) {
-        obj->rx = stm_dma_ll_from_handle(&obj->rx_handle);
         stm_set_dma_irq_hook(&obj->rx_handle, serial_dma_rx_irq, obj);
     }
     serial_dma_reapply(obj);
