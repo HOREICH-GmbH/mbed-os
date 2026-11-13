@@ -46,4 +46,54 @@ static const DMALinkInfo OSPIDMALinks[] = {
 #endif
 };
 
+/// Mapping from UART index (get_uart_index()) to DMA link info for Tx (serial_dma_api.h)
+static const DMALinkInfo UARTTxDMALinks[] = {
+#if defined(USART1_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART1_TX},
+#endif
+#if defined(USART2_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART2_TX},
+#endif
+#if defined(USART3_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART3_TX},
+#endif
+#if defined(UART4_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_UART4_TX},
+#endif
+#if defined(UART5_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_UART5_TX},
+#endif
+#if defined(USART6_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART6_TX},
+#endif
+#if defined(LPUART1_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_LPUART1_TX},
+#endif
+};
+
+/// Mapping from UART index (get_uart_index()) to DMA link info for Rx (serial_dma_api.h)
+static const DMALinkInfo UARTRxDMALinks[] = {
+#if defined(USART1_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART1_RX},
+#endif
+#if defined(USART2_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART2_RX},
+#endif
+#if defined(USART3_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART3_RX},
+#endif
+#if defined(UART4_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_UART4_RX},
+#endif
+#if defined(UART5_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_UART5_RX},
+#endif
+#if defined(USART6_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_USART6_RX},
+#endif
+#if defined(LPUART1_BASE)
+        {MBED_ANY_GPDMA_MODULE, MBED_ANY_DMA_CHANNEL, GPDMA1_REQUEST_LPUART1_RX},
+#endif
+};
+
 #endif //MBED_OS_STM_DMA_INFO_H

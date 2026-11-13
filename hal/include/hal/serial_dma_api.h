@@ -1,0 +1,125 @@
+/** \addtogroup hal */
+/** @{*/
+/* mbed Microcontroller Library
+ * Copyright (c) 2026 HOREICH GmbH
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+#ifndef MBED_SERIAL_DMA_API_H
+#define MBED_SERIAL_DMA_API_H
+
+#include "hal/serial_api.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#if DEVICE_SERIAL_DMA
+
+/**
+ * \defgroup hal_serial_dma Serial by DMA
+ *
+ * A UART set up by serial_api.h (serial_init(), serial_baud(), serial_set_flow_control(), serial_free()) whose data
+ * goes by DMA: a piece at a time out of the caller's memory, and in round and round into the caller's ring. It
+ * lives beside the asynchronous serial API - a UART is driven by one or the other, never both.
+ *
+ * Transmit is two events, so pieces chain without a gap: SERIAL_DMA_TX_CONSUMED when the DMA has handed a piece to
+ * the UART (the next may start), SERIAL_DMA_TX_IDLE once its last bit has left the line - asked for with
+ * serial_dma_tx_notify_idle(), for the caller that holds deep sleep off while sending.
+ * Receive runs until stopped: SERIAL_DMA_RX when the line goes idle after a burst and when the DMA passes the
+ * ring's middle and end; where the DMA is, serial_dma_rx_position(). A line error (framing, noise, parity) is
+ * cleared and reported, and reception goes on.
+ *
+ * Every function except attach and detach may be called with interrupts off; the handler is called from interrupt
+ * context.
+ *
+ * @{
+ */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** The target's state of one UART by DMA (objects.h) */
+typedef struct serial_dma_s serial_dma_t;
+
+#define SERIAL_DMA_TX_CONSUMED (1u << 0) ///< the piece is with the UART: the next one may start
+#define SERIAL_DMA_TX_IDLE     (1u << 1) ///< the last bit has left the line (after serial_dma_tx_notify_idle())
+#define SERIAL_DMA_RX          (1u << 2) ///< bytes arrived: the line went idle, or the DMA passed the ring's middle or end
+#define SERIAL_DMA_RX_RESTART  (1u << 3) ///< the receive DMA failed and started again at the ring's start
+#define SERIAL_DMA_ERROR       (1u << 4) ///< a line error or a DMA transfer error, cleared
+
+/** Called from interrupt context with SERIAL_DMA_* events */
+typedef void (*serial_dma_handler_t)(void *context, uint32_t events);
+
+/** Take the UART's data over: claim its DMA channels, set the UART up for them, take its interrupt
+ *
+ * @param obj      the state, the caller's for as long as it is attached
+ * @param serial   the UART, set up by serial_init()
+ * @param transmit send by DMA
+ * @param rx_ring  receive by DMA into this ring, round and round; NULL: no reception
+ * @param rx_size  its size in bytes (up to 65535)
+ * @param handler  called with the events
+ * @param context  passed to @p handler
+ * @return 0, or negative: no DMA link for this UART, a channel another user's (or none free), the UART taken
+ */
+int serial_dma_attach(serial_dma_t *obj, serial_t *serial, bool transmit, uint8_t *rx_ring, uint32_t rx_size,
+                      serial_dma_handler_t handler, void *context);
+
+/** Give it back: transfers stopped, channels released, the UART's DMA requests and interrupts off */
+void serial_dma_detach(serial_dma_t *obj);
+
+/** The UART's DMA bits and interrupt back on: after every serial_init(), serial_baud(), serial_format() and
+ *  serial_set_flow_control() - they set the UART up anew */
+void serial_dma_reapply(serial_dma_t *obj);
+
+/** Before serial_free(): both transfers stopped, the UART's interrupt off. serial_dma_reapply() after the next
+ *  serial_init() takes it up again */
+void serial_dma_suspend(serial_dma_t *obj);
+
+/** Send @p length bytes from @p data (which stay put until SERIAL_DMA_TX_CONSUMED) */
+int serial_dma_tx_start(serial_dma_t *obj, const uint8_t *data, uint32_t length);
+
+/** SERIAL_DMA_TX_IDLE once the last bit has left the line */
+void serial_dma_tx_notify_idle(serial_dma_t *obj);
+
+/** The transfer under way stopped, its interrupt not to come */
+void serial_dma_tx_stop(serial_dma_t *obj);
+
+/** Interrupts off for good: waits (bounded) until the transfer under way is with the UART, then stops it */
+void serial_dma_tx_finish(serial_dma_t *obj);
+
+/** Interrupts off for good: @p data out byte by byte, waiting for each, and until the last one has left the line */
+void serial_dma_tx_polled(serial_dma_t *obj, const uint8_t *data, uint32_t length);
+
+/** Reception into the ring, from its start */
+void serial_dma_rx_start(serial_dma_t *obj);
+
+/** Reception stopped */
+void serial_dma_rx_stop(serial_dma_t *obj);
+
+/** Where the receive DMA is, with interrupts off: the position in the ring, and in @p laps the rings completed since
+ *  serial_dma_rx_start() - one whose interrupt is still pending included */
+uint32_t serial_dma_rx_position(serial_dma_t *obj, uint32_t *laps);
+
+#ifdef __cplusplus
+}
+#endif
+
+/**@}*/
+
+#endif // DEVICE_SERIAL_DMA
+
+#endif // MBED_SERIAL_DMA_API_H
+
+/** @}*/

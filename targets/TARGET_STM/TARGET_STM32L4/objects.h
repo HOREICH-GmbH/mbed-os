@@ -157,6 +157,8 @@ struct ospi_s {
 
 #define HAL_CRC_IS_SUPPORTED(polynomial, width) ((width) == 7 || (width) == 8 || (width) == 16 || (width) == 32)
 
+#include "serial_dma_object.h"
+
 #ifdef __cplusplus
 }
 #endif
