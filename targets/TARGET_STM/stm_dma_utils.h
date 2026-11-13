@@ -203,6 +203,48 @@ DMAHandlePointer stm_init_dma_link(DMALinkInfo const * dmaLink, uint32_t directi
  */
 void stm_free_dma_link(DMAHandlePointer *handle);
 
+/**
+ * @brief Claim a DMA link, or learn that it cannot be had.
+ *
+ * As stm_init_dma_link(), but a link asking for any channel (MBED_ANY_DMA_CHANNEL) when none is free returns
+ * NULL too, instead of ending in mbed_error() - for a user that can fall back to working without DMA.
+ *
+ * @return Pointer to DMA handle allocated by this module.
+ * @return NULL if the channel is another user's, or no channel is free.
+ */
+DMAHandlePointer stm_claim_dma_link(DMALinkInfo const * dmaLink, uint32_t direction, bool periphInc, bool memInc, uint8_t periphDataAlignment, uint8_t memDataAlignment, uint32_t mode);
+
+/// A claimed channel as ST's LL addresses it - driven by the functions in stm_dma_ll.h.
+typedef struct {
+    DMA_TypeDef *dma;
+    uint32_t channel; ///< LL_DMA_CHANNEL_x
+} stm_dma_ll_t;
+
+/// The linked-list item of a GPDMA (IP v3) circular transfer, for stm_dma_ll_start_p2m_circular(): CBR1, CDAR, CLLR
+/// in the order the channel loads them. It must live as long as the transfer runs and be word-aligned (CLBAR takes
+/// its address's upper half, CLLR the lower). Unused on IP v2.
+typedef struct {
+    uint32_t cbr1;
+    uint32_t cdar;
+    uint32_t cllr;
+} stm_dma_ll_node_t;
+
+/// A DMA channel's interrupt, taken over from HAL_DMA_IRQHandler (see stm_set_dma_irq_hook()).
+typedef void (*stm_dma_irq_hook_t)(void *context);
+
+/**
+ * @brief Take a claimed channel's interrupt over.
+ *
+ * With a hook set, the channel's interrupt calls @p hook instead of HAL_DMA_IRQHandler(): the user drives the
+ * channel by its registers (stm_dma_ll.h) and reads and clears its flags itself. NULL gives the interrupt back to
+ * the HAL. stm_free_dma_link() removes the hook.
+ *
+ * @param handle the channel, as stm_init_dma_link() / stm_claim_dma_link() returned it
+ * @param hook called from the channel's interrupt, or NULL
+ * @param context passed to @p hook
+ */
+void stm_set_dma_irq_hook(DMAHandlePointer const * handle, stm_dma_irq_hook_t hook, void *context);
+
 #if defined(__cplusplus)
 }
 #endif
