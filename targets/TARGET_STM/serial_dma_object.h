@@ -44,6 +44,10 @@ struct serial_dma_s {
     uint32_t frame_value;            ///< its bit times or character
     uint32_t frame_position;         ///< where the receive DMA was when the last frame ended
     uint32_t frame_laps;
+    bool suspended;                  ///< serial_dma_suspend() to serial_dma_reapply(): nothing to check
+    uint32_t stray_run;              ///< interrupts in a row that handled nothing
+    uint32_t stray_total;
+    bool stray_tripped;              ///< SERIAL_DMA_STRAY_LIMIT reached: the UART's interrupt switched off
     void (*handler)(void *context, uint32_t events);
     void *context;
 };

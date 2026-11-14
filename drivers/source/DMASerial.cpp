@@ -28,6 +28,7 @@
 #endif
 
 #include <errno.h>
+#include <stdio.h>
 #if MBED_CONF_RTOS_PRESENT
 #include "rtos/Kernel.h"
 #endif
@@ -208,6 +209,41 @@ void DMASerial::update_received() const
 uint32_t DMASerial::tx_dropped() const
 {
     return _tx_ring.dropped();
+}
+
+uint32_t DMASerial::check_health() const
+{
+    if (!_dma_ready || !_powered) {
+        return 0;
+    }
+    return serial_dma_check(const_cast<serial_dma_t *>(&_dma));
+}
+
+uint32_t DMASerial::stray_interrupts() const
+{
+    return _dma_ready ? serial_dma_stray_interrupts(const_cast<serial_dma_t *>(&_dma)) : 0;
+}
+
+int DMASerial::describe(char *out, size_t size) const
+{
+    if (!_dma_ready) {
+        return snprintf(out, size, "no DMA");
+    }
+    core_util_critical_section_enter();
+    update_received();
+    const size_t available = _rx_ring.available();
+    const size_t frames = _rx_ring.frames();
+    const uint32_t overruns = _rx_ring.overruns();
+    const uint32_t merged = _rx_ring.frames_merged();
+    core_util_critical_section_exit();
+    const int head = snprintf(out, size, "%s rx %u frames %u overruns %lu errors %lu merged %lu cut %lu dropped %lu faults %lx | ",
+                              _powered ? "on" : "off", (unsigned)available, (unsigned)frames, (unsigned long)overruns,
+                              (unsigned long)_errors, (unsigned long)merged, (unsigned long)_frames_truncated,
+                              (unsigned long)tx_dropped(), (unsigned long)check_health());
+    if (head < 0 || (size_t)head >= size) {
+        return head;
+    }
+    return head + serial_dma_describe(const_cast<serial_dma_t *>(&_dma), out + head, size - (size_t)head);
 }
 
 uint32_t DMASerial::frames_merged() const

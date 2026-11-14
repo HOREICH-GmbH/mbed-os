@@ -106,6 +106,17 @@ public:
     /** Bytes the receive DMA overwrote before they were read */
     uint32_t rx_overruns() const;
 
+    /** What is wrong with the UART's DMA set-up now (hal/serial_dma_api.h's SERIAL_DMA_FAULT_* bits): the receive
+     *  channel stopped, the DMA requests or an interrupt enable cleared, the vector taken over, the stray-interrupt
+     *  limit reached. 0: healthy - and while powered down or without DMA. Cheap; call it now and then. */
+    uint32_t check_health() const;
+
+    /** UART interrupts that handled nothing, since construction */
+    uint32_t stray_interrupts() const;
+
+    /** One line of state for a log: the rings and counters, the UART's registers (snprintf's return) */
+    int describe(char *out, size_t size) const;
+
     /** Line errors (framing, noise, parity) and DMA transfer errors */
     uint32_t errors() const
     {

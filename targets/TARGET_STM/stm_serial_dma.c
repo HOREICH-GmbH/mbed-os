@@ -36,6 +36,7 @@
 #include "stm_dma_info.h"
 #include "stm_dma_ll.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #if !STM_DMA_LL_SUPPORTED
@@ -113,9 +114,19 @@ static void serial_dma_uart_irq(serial_dma_t *obj)
         LL_USART_WriteReg(uart, ICR, USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF | USART_ICR_ORECF);
         events |= SERIAL_DMA_ERROR; // the DMA reads on
     }
-    if (events != 0) {
-        obj->handler(obj->context, events);
+    if (events == 0) {
+        // Handled nothing: a source this layer does not know, enabled behind its back, would re-enter for ever
+        obj->stray_total = obj->stray_total + 1;
+        obj->stray_run = obj->stray_run + 1;
+        if (obj->stray_run >= SERIAL_DMA_STRAY_LIMIT) {
+            NVIC_DisableIRQ(obj->irq);
+            obj->stray_tripped = true;
+            obj->handler(obj->context, SERIAL_DMA_ERROR);
+        }
+        return;
     }
+    obj->stray_run = 0;
+    obj->handler(obj->context, events);
 }
 
 #define SERIAL_DMA_VECTOR(n) \
@@ -368,11 +379,15 @@ void serial_dma_reapply(serial_dma_t *obj)
         LL_USART_EnableIT_IDLE(uart);
     }
     NVIC_SetVector(obj->irq, (uint32_t)serial_dma_vectors[obj->index]);
+    obj->stray_run = 0;
+    obj->stray_tripped = false;
+    obj->suspended = false;
     NVIC_EnableIRQ(obj->irq);
 }
 
 void serial_dma_suspend(serial_dma_t *obj)
 {
+    obj->suspended = true;
     NVIC_DisableIRQ(obj->irq);
     if (obj->tx_handle.hdma != NULL) {
         stm_dma_ll_stop(&obj->tx);
@@ -507,6 +522,66 @@ uint32_t serial_dma_rx_frame_end(serial_dma_t *obj, uint32_t *laps)
 {
     *laps = obj->frame_laps;
     return obj->frame_position;
+}
+
+// ---- Health --------------------------------------------------------------------------------------------------------
+
+uint32_t serial_dma_check(serial_dma_t *obj)
+{
+    if (obj->uart == NULL || obj->suspended) {
+        return 0;
+    }
+    USART_TypeDef *uart = obj->uart;
+    const uint32_t cr1 = LL_USART_ReadReg(uart, CR1);
+    const uint32_t cr2 = LL_USART_ReadReg(uart, CR2);
+    const uint32_t cr3 = LL_USART_ReadReg(uart, CR3);
+    uint32_t faults = 0;
+    if (obj->rx_running && !stm_dma_ll_enabled(&obj->rx)) {
+        faults |= SERIAL_DMA_FAULT_RX_STOPPED; // a transfer error stops the channel
+    }
+    if ((obj->transmit && (cr3 & USART_CR3_DMAT) == 0) || (obj->rx_ring != NULL && (cr3 & USART_CR3_DMAR) == 0)) {
+        faults |= SERIAL_DMA_FAULT_DMA_REQUEST;
+    }
+    if (obj->rx_ring != NULL) {
+        bool interrupts = (cr1 & USART_CR1_IDLEIE) != 0;
+        if (obj->frame_mode == SERIAL_DMA_FRAME_TIMEOUT) {
+            interrupts = interrupts && (cr1 & USART_CR1_RTOIE) != 0 && (cr2 & USART_CR2_RTOEN) != 0;
+        } else if (obj->frame_mode == SERIAL_DMA_FRAME_MATCH) {
+            interrupts = interrupts && (cr1 & USART_CR1_CMIE) != 0;
+        }
+        if (!interrupts) {
+            faults |= SERIAL_DMA_FAULT_INTERRUPT;
+        }
+    }
+    if (obj->stray_tripped) {
+        faults |= SERIAL_DMA_FAULT_STRAY;
+    } else if (NVIC_GetVector(obj->irq) != (uint32_t)serial_dma_vectors[obj->index] || !NVIC_GetEnableIRQ(obj->irq)) {
+        faults |= SERIAL_DMA_FAULT_VECTOR;
+    }
+    return faults;
+}
+
+uint32_t serial_dma_stray_interrupts(serial_dma_t *obj)
+{
+    return obj->stray_total;
+}
+
+int serial_dma_describe(serial_dma_t *obj, char *out, size_t size)
+{
+    if (obj->uart == NULL) {
+        return snprintf(out, size, "detached");
+    }
+    USART_TypeDef *uart = obj->uart;
+    uint32_t laps = 0;
+    core_util_critical_section_enter();
+    const uint32_t position = serial_dma_rx_position(obj, &laps);
+    core_util_critical_section_exit();
+    return snprintf(out, size, "isr=%08lx cr1=%08lx cr2=%08lx cr3=%08lx rx=%s pos=%lu laps=%lu frame=%u stray=%lu%s",
+                    (unsigned long)LL_USART_ReadReg(uart, ISR), (unsigned long)LL_USART_ReadReg(uart, CR1),
+                    (unsigned long)LL_USART_ReadReg(uart, CR2), (unsigned long)LL_USART_ReadReg(uart, CR3),
+                    obj->rx_handle.hdma == NULL ? "none" : (obj->rx_running ? (stm_dma_ll_enabled(&obj->rx) ? "on" : "STOPPED") : "off"),
+                    (unsigned long)position, (unsigned long)laps, (unsigned)obj->frame_mode, (unsigned long)obj->stray_total,
+                    obj->stray_tripped ? " TRIPPED" : "");
 }
 
 #endif // DEVICE_SERIAL_DMA

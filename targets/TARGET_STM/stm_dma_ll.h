@@ -271,6 +271,12 @@ static inline bool stm_dma_ll_busy(stm_dma_ll_t const *ll)
 
 #endif // DMA_IP_VERSION_V3
 
+/// The channel enabled: a transfer error disables it, on both DMA variants (CCR.EN)
+static inline bool stm_dma_ll_enabled(stm_dma_ll_t const *ll)
+{
+    return LL_DMA_IsEnabledChannel(ll->dma, ll->channel) != 0u;
+}
+
 #if defined(__cplusplus)
 }
 #endif

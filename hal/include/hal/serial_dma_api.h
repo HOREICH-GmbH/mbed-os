@@ -22,6 +22,7 @@
 #include "hal/serial_api.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #if DEVICE_SERIAL_DMA
@@ -43,6 +44,10 @@
  * character, silent for a set number of bit times (receiver timeout: Modbus RTU's 3.5 characters), or a set
  * character received (character match). SERIAL_DMA_RX_FRAME then, with where the DMA was at that moment,
  * serial_dma_rx_frame_end() - captured in the interrupt, so a frame that follows at once is not glued on.
+ *
+ * Health (serial_dma_check()): the ways reception stops without saying so - the receive channel disabled, the UART's
+ * DMA requests or frame interrupts cleared behind the driver's back, its vector taken over - and interrupts that
+ * handled nothing, counted and, SERIAL_DMA_STRAY_LIMIT in a row, the UART's interrupt switched off.
  *
  * Every function except attach and detach may be called with interrupts off; the handler is called from interrupt
  * context.
@@ -71,6 +76,16 @@ typedef enum {
     SERIAL_DMA_FRAME_TIMEOUT,  ///< the line silent for a set number of bit times after a byte (receiver timeout)
     SERIAL_DMA_FRAME_MATCH,    ///< a set character received (character match), the frame's last byte
 } serial_dma_frame_t;
+
+/** serial_dma_check()'s findings - 0: healthy */
+#define SERIAL_DMA_FAULT_RX_STOPPED  (1u << 0) ///< receiving, but the receive DMA channel is disabled
+#define SERIAL_DMA_FAULT_DMA_REQUEST (1u << 1) ///< the UART's DMA request bits (CR3 DMAT/DMAR) cleared
+#define SERIAL_DMA_FAULT_INTERRUPT   (1u << 2) ///< an interrupt enable (IDLE, the frame's) or the receiver timeout cleared
+#define SERIAL_DMA_FAULT_VECTOR      (1u << 3) ///< the UART's vector not this layer's, or its interrupt off in the NVIC
+#define SERIAL_DMA_FAULT_STRAY       (1u << 4) ///< SERIAL_DMA_STRAY_LIMIT interrupts in a row handled nothing: switched off
+
+/** Interrupts in a row that handled nothing before the UART's interrupt is switched off */
+#define SERIAL_DMA_STRAY_LIMIT 100u
 
 /** Called from interrupt context with SERIAL_DMA_* events */
 typedef void (*serial_dma_handler_t)(void *context, uint32_t events);
@@ -136,6 +151,16 @@ int serial_dma_rx_frame(serial_dma_t *obj, serial_dma_frame_t mode, uint32_t val
 /** Where the receive DMA was when the last frame ended, as serial_dma_rx_position() - for SERIAL_DMA_RX_FRAME's
  *  handler, which is called before the next frame can end */
 uint32_t serial_dma_rx_frame_end(serial_dma_t *obj, uint32_t *laps);
+
+/** What is wrong with the UART's DMA set-up now: SERIAL_DMA_FAULT_* bits, 0 healthy. Nothing while suspended
+ *  (serial_dma_suspend() to the next serial_dma_reapply()) or detached. */
+uint32_t serial_dma_check(serial_dma_t *obj);
+
+/** UART interrupts that handled nothing, since attach */
+uint32_t serial_dma_stray_interrupts(serial_dma_t *obj);
+
+/** The UART's registers and the receive DMA, one line into @p out (snprintf's return) */
+int serial_dma_describe(serial_dma_t *obj, char *out, size_t size);
 
 #ifdef __cplusplus
 }
