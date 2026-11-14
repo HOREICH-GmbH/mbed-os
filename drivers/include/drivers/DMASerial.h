@@ -116,7 +116,8 @@ public:
     using SerialBase::Forced1;
     using SerialBase::Forced0;
 
-    /** Set the transmission format used by the serial port */
+    /** Set the transmission format used by the serial port - kept, and set again at every power-up (SerialBase's
+     *  set-up restores the rate and flow control only) */
     void set_format(int bits = 8, Parity parity = DMASerial::None, int stop_bits = 1);
 
 #if DEVICE_SERIAL_FC
@@ -196,6 +197,10 @@ private:
     bool _output_enabled = true;
     bool _blocking = true;
     bool _tx_deep_sleep_held = false;
+    // The format set_format() asked for: SerialBase keeps none, and its _init() leaves the UART at 8N1
+    int _format_bits = 8;
+    Parity _format_parity = None;
+    int _format_stop_bits = 1;
     bool _rx_deep_sleep_held = false;
 };
 

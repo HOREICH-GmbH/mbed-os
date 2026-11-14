@@ -138,6 +138,9 @@ void DMASerial::power_up()
 {
     // mbed's serial layer (pins, clock, HAL init, the rate and flow control SerialBase keeps), then the DMA on top
     (this->*_init_func)();
+    if (_format_bits != 8 || _format_parity != None || _format_stop_bits != 1) {
+        SerialBase::format(_format_bits, _format_parity, _format_stop_bits); // _init() left it at 8N1
+    }
     _rx_enabled = true;
     _tx_enabled = true;
     serial_dma_reapply(&_dma);
@@ -227,6 +230,10 @@ void DMASerial::set_baud(int baud)
 void DMASerial::set_format(int bits, Parity parity, int stop_bits)
 {
     lock();
+    // Kept: powered down it is applied at power-up, and every power-up sets it again
+    _format_bits = bits;
+    _format_parity = parity;
+    _format_stop_bits = stop_bits;
     if (_powered) {
         SerialBase::format(bits, parity, stop_bits);
         if (_dma_ready) {

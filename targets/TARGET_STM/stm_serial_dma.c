@@ -400,11 +400,20 @@ uint32_t serial_dma_rx_position(serial_dma_t *obj, uint32_t *laps)
         *laps = obj->rx_laps;
         return 0;
     }
+    // The count and the lap must be the same lap's. The wrap flag is read around the count: a wrap between the two
+    // reads paired the old lap's position (near the end) with the new lap - the writer a whole ring ahead, and the
+    // reader handed bytes not yet received, or an overrun counted that was none. A wrap in between: the count again,
+    // the new lap's.
+    const bool wrapped_before = (stm_dma_ll_events(&obj->rx) & STM_DMA_LL_TC) != 0;
     uint32_t remaining = stm_dma_ll_remaining(&obj->rx);
+    const bool wrapped = (stm_dma_ll_events(&obj->rx) & STM_DMA_LL_TC) != 0;
+    if (wrapped && !wrapped_before) {
+        remaining = stm_dma_ll_remaining(&obj->rx);
+    }
     if (remaining == 0 || remaining > obj->rx_size) {
         remaining = obj->rx_size; // reloaded this instant
     }
-    *laps = obj->rx_laps + ((stm_dma_ll_events(&obj->rx) & STM_DMA_LL_TC) ? 1u : 0u);
+    *laps = obj->rx_laps + (wrapped ? 1u : 0u);
     return obj->rx_size - remaining;
 }
 
