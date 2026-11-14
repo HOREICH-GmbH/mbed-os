@@ -28,6 +28,8 @@
 #include "platform/FileHandle.h"
 #include "platform/NonCopyable.h"
 #include "rtos/Mutex.h"
+
+#include <chrono>
 #if MBED_CONF_RTOS_PRESENT
 #include "rtos/EventFlags.h"
 #endif
@@ -54,6 +56,10 @@ namespace mbed {
  *  link known for this UART, or a channel another user's - the constructor gives the UART back (is_dma() is false)
  *  and the caller falls back, e.g. to a BufferedSerial on the same pins.
  *
+ *  Frames (optional, set_frame()): the UART tells where a received frame ends - the line idle for a character, silent
+ *  for a set gap (receiver timeout: Modbus RTU's 3.5 characters by default), or a set character received - and
+ *  read_frame() hands out one frame at a time, waiting up to a timeout: a request/response protocol needs no framing
+ *  of its own on top of the stream. Several frames before the reader stay apart (up to DMARxRing::max_frames).
  *  Power: enable_input(false) and enable_output(false) both - the DMA stopped, the UART released (serial_free():
  *  reset, clock off, pins analog - what deep sleep needs of it), deep sleep allowed; either on again sets it all up.
  *  Deep sleep is held off while receiving, and while a transmission is under way.
@@ -105,6 +111,46 @@ public:
     {
         return _errors;
     }
+
+    /** How a received frame's end is told (set_frame(), read_frame()) */
+    enum class Frame {
+        None,    ///< not at all: the stream, read()
+        Idle,    ///< the line idle for one character after a byte
+        Timeout, ///< the line silent for a set number of bit times after a byte (the UART's receiver timeout)
+        Match,   ///< a set character received - the frame's last byte
+    };
+
+    /** How a received frame's end is told, for read_frame()
+     *
+     *  @param frame  how
+     *  @param value  Frame::Timeout: the silence in bit times, 0 Modbus RTU's for the rate and format (kept so:
+     *                set_baud() and set_format() recompute it); Frame::Match: the character; else unused
+     *  @return 0, -ENOTSUP: this UART has no receiver timeout (an LPUART), -EINVAL: @p value out of range, transmit
+     *          only, or no DMA. Sets the UART up anew - before traffic.
+     */
+    int set_frame(Frame frame, uint32_t value = 0);
+
+    /** The next received frame into @p buffer, waiting up to @p timeout for one to end. A frame longer than @p length
+     *  is cut, its rest dropped (frames_truncated()). Use read_frame() or read(), not both: bytes read() takes are no
+     *  longer a frame's.
+     *
+     *  @return the bytes copied, 0: no frame within @p timeout, -EINVAL: no frames set (set_frame()) or transmit only
+     */
+    ssize_t read_frame(void *buffer, size_t length, std::chrono::milliseconds timeout);
+
+    /** Frames cut by read_frame() to the caller's buffer */
+    uint32_t frames_truncated() const
+    {
+        return _frames_truncated;
+    }
+
+    /** Frame ends dropped because DMARxRing::max_frames were waiting - two frames read as one */
+    uint32_t frames_merged() const;
+
+    /** Modbus RTU's silent interval between frames (Modbus over Serial Line V1.02, 2.5.1.1) in bit times: 3.5
+     *  characters of @p char_bits bits (11: start, 8 data, parity or a second stop bit, stop), a fixed 1750 us above
+     *  19200 baud */
+    static uint32_t modbus_frame_gap_bits(int baud, int char_bits = 11);
 
     /** Set the baud rate */
     void set_baud(int baud);
@@ -175,6 +221,8 @@ private:
     void update_received() const; ///< the ring from where the DMA is - interrupts off
     void readable();         ///< bytes arrived: sigio, a blocked read woken - interrupt context
     void wait_for(uint32_t flag);
+    int apply_frame();       ///< the frame setting to the UART - powered
+    int char_bits() const;   ///< a character on the line: start, data, parity, stop
     bool kernel_running() const;
 
     static constexpr uint32_t readable_flag = 1u << 0;
@@ -201,6 +249,10 @@ private:
     int _format_bits = 8;
     Parity _format_parity = None;
     int _format_stop_bits = 1;
+    Frame _frame = Frame::None;
+    uint32_t _frame_value = 0;
+    bool _frame_gap_auto = false; ///< Frame::Timeout with Modbus RTU's gap for the rate and format
+    uint32_t _frames_truncated = 0;
     bool _rx_deep_sleep_held = false;
 };
 

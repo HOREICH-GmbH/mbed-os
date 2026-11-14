@@ -40,6 +40,10 @@ struct serial_dma_s {
     uint32_t rx_size;
     volatile uint32_t rx_laps;       ///< rings completed since serial_dma_rx_start()
     bool rx_running;
+    uint8_t frame_mode;              ///< serial_dma_frame_t
+    uint32_t frame_value;            ///< its bit times or character
+    uint32_t frame_position;         ///< where the receive DMA was when the last frame ended
+    uint32_t frame_laps;
     void (*handler)(void *context, uint32_t events);
     void *context;
 };

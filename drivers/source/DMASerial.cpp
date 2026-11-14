@@ -28,6 +28,9 @@
 #endif
 
 #include <errno.h>
+#if MBED_CONF_RTOS_PRESENT
+#include "rtos/Kernel.h"
+#endif
 
 // No trace here: the console may be one of these.
 
@@ -145,6 +148,9 @@ void DMASerial::power_up()
     _tx_enabled = true;
     serial_dma_reapply(&_dma);
     _powered = true;
+    if (_frame != Frame::None) {
+        apply_frame(); // set while powered down, or a gap from a rate set meanwhile
+    }
 }
 
 void DMASerial::power_down()
@@ -204,6 +210,121 @@ uint32_t DMASerial::tx_dropped() const
     return _tx_ring.dropped();
 }
 
+uint32_t DMASerial::frames_merged() const
+{
+    core_util_critical_section_enter();
+    const uint32_t merged = _rx_ring.frames_merged();
+    core_util_critical_section_exit();
+    return merged;
+}
+
+uint32_t DMASerial::modbus_frame_gap_bits(int baud, int char_bits)
+{
+    if (baud > 19200) {
+        return (uint32_t)((1750ULL * (uint64_t)baud + 999999ULL) / 1000000ULL); // 1750 us, rounded up
+    }
+    return (uint32_t)((7 * char_bits + 1) / 2); // 3.5 characters, rounded up
+}
+
+int DMASerial::char_bits() const
+{
+    return 1 + _format_bits + (_format_parity != None ? 1 : 0) + _format_stop_bits;
+}
+
+int DMASerial::apply_frame()
+{
+    serial_dma_frame_t mode = SERIAL_DMA_FRAME_NONE;
+    uint32_t value = _frame_value;
+    switch (_frame) {
+        case Frame::Idle:
+            mode = SERIAL_DMA_FRAME_IDLE;
+            break;
+        case Frame::Timeout:
+            mode = SERIAL_DMA_FRAME_TIMEOUT;
+            if (_frame_gap_auto) {
+                value = modbus_frame_gap_bits(_baud, char_bits());
+            }
+            break;
+        case Frame::Match:
+            mode = SERIAL_DMA_FRAME_MATCH;
+            break;
+        default:
+            break;
+    }
+    const int rc = serial_dma_rx_frame(&_dma, mode, value);
+    return rc == 0 ? 0 : (rc == -1 ? -ENOTSUP : -EINVAL);
+}
+
+int DMASerial::set_frame(Frame frame, uint32_t value)
+{
+    if (!_dma_ready || !receives()) {
+        return -EINVAL;
+    }
+    lock();
+    const Frame previous = _frame;
+    const uint32_t previous_value = _frame_value;
+    const bool previous_auto = _frame_gap_auto;
+    _frame = frame;
+    _frame_value = value;
+    _frame_gap_auto = frame == Frame::Timeout && value == 0;
+    int rc = 0;
+    if (_powered) {
+        rc = apply_frame();
+        if (rc != 0) {
+            // Refused: the setting before stays
+            _frame = previous;
+            _frame_value = previous_value;
+            _frame_gap_auto = previous_auto;
+        }
+    }
+    unlock();
+    return rc;
+}
+
+ssize_t DMASerial::read_frame(void *buffer, size_t length, std::chrono::milliseconds timeout)
+{
+    if (!receives() || !_dma_ready || _frame == Frame::None) {
+        return -EINVAL;
+    }
+#if MBED_CONF_RTOS_PRESENT
+    const auto deadline = rtos::Kernel::Clock::now() + timeout;
+#else
+    auto left = timeout;
+#endif
+    for (;;) {
+#if MBED_CONF_RTOS_PRESENT
+        _flags.clear(readable_flag);
+#endif
+        bool truncated = false;
+        core_util_critical_section_enter();
+        update_received();
+        const size_t count = _rx_ring.read_frame(static_cast<uint8_t *>(buffer), length, &truncated);
+        core_util_critical_section_exit();
+        if (count > 0) {
+            if (truncated) {
+                _frames_truncated = _frames_truncated + 1;
+            }
+            return static_cast<ssize_t>(count);
+        }
+        if (!kernel_running()) {
+            return 0; // no waiting in an interrupt or before the kernel
+        }
+#if MBED_CONF_RTOS_PRESENT
+        const auto now = rtos::Kernel::Clock::now();
+        if (now >= deadline) {
+            return 0;
+        }
+        _flags.wait_any_for(readable_flag, std::chrono::duration_cast<rtos::Kernel::Clock::duration_u32>(deadline - now));
+#else
+        if (left <= std::chrono::milliseconds(0)) {
+            return 0;
+        }
+        thread_sleep_for(1);
+        left -= std::chrono::milliseconds(1);
+#endif
+    }
+}
+
 uint32_t DMASerial::rx_overruns() const
 {
     core_util_critical_section_enter();
@@ -220,6 +341,9 @@ void DMASerial::set_baud(int baud)
         SerialBase::baud(baud); // HAL_UART_Init anew
         if (_dma_ready) {
             serial_dma_reapply(&_dma);
+            if (_frame_gap_auto) {
+                apply_frame(); // Modbus RTU's gap for the new rate
+            }
         }
     } else {
         _baud = baud; // applied at power-up
@@ -238,6 +362,9 @@ void DMASerial::set_format(int bits, Parity parity, int stop_bits)
         SerialBase::format(bits, parity, stop_bits);
         if (_dma_ready) {
             serial_dma_reapply(&_dma);
+            if (_frame_gap_auto) {
+                apply_frame(); // Modbus RTU's gap for the new character length
+            }
         }
     }
     unlock();
@@ -507,6 +634,14 @@ void DMASerial::on_dma(void *context, uint32_t events)
     if (events & SERIAL_DMA_RX_RESTART) {
         core_util_critical_section_enter();
         self->_rx_ring.reset();
+        core_util_critical_section_exit();
+    }
+    if (events & SERIAL_DMA_RX_FRAME) {
+        // Where the DMA was as the frame ended - captured in the UART's interrupt, this one
+        uint32_t laps = 0;
+        const uint32_t position = serial_dma_rx_frame_end(&self->_dma, &laps);
+        core_util_critical_section_enter();
+        self->_rx_ring.frame_end(laps, position);
         core_util_critical_section_exit();
     }
     if (events & (SERIAL_DMA_RX | SERIAL_DMA_RX_RESTART)) {

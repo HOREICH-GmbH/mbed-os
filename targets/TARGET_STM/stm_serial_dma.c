@@ -50,15 +50,20 @@ extern int8_t get_uart_index(UARTName uart_name);
 
 _Static_assert(SERIAL_DMA_LINKS <= SERIAL_DMA_MAX_UARTS, "more UARTs than serial_dma vectors");
 
-// TXE is TXFNF on parts with a UART FIFO (U5, L4+), and named so by LL there alone
+// TXE is TXFNF and RXNE RXFNE on parts with a UART FIFO (U5, L4+), and named so by LL there alone
 #if defined(USART_CR1_FIFOEN)
 #define SERIAL_DMA_TX_EMPTY(uart) LL_USART_IsActiveFlag_TXE_TXFNF(uart)
+#define SERIAL_DMA_RX_NOT_EMPTY(uart) LL_USART_IsActiveFlag_RXNE_RXFNE(uart)
 #else
 #define SERIAL_DMA_TX_EMPTY(uart) LL_USART_IsActiveFlag_TXE(uart)
+#define SERIAL_DMA_RX_NOT_EMPTY(uart) LL_USART_IsActiveFlag_RXNE(uart)
 #endif
 
 /// Bounds the polled waits: a UART that stopped must not hang a fatal error for ever (at 9600 baud a byte is ~1 ms).
 #define SERIAL_DMA_POLL_LIMIT 1000000u
+/// Bounds the interrupt's wait for the DMA to take a match character from RDR - a few bus cycles; a stopped DMA must
+/// not hold the interrupt
+#define SERIAL_DMA_RXNE_WAIT 64u
 
 #define SERIAL_DMA_LINE_ERRORS (USART_ISR_FE | USART_ISR_NE | USART_ISR_PE | USART_ISR_ORE)
 
@@ -78,6 +83,27 @@ static void serial_dma_uart_irq(serial_dma_t *obj)
     if ((cr1 & USART_CR1_IDLEIE) && (isr & USART_ISR_IDLE)) {
         LL_USART_ClearFlag_IDLE(uart);
         events |= SERIAL_DMA_RX; // the line went quiet after a burst
+        if (obj->frame_mode == SERIAL_DMA_FRAME_IDLE) {
+            events |= SERIAL_DMA_RX_FRAME;
+        }
+    }
+    if ((cr1 & USART_CR1_RTOIE) && (isr & USART_ISR_RTOF)) {
+        LL_USART_ClearFlag_RTO(uart);
+        events |= SERIAL_DMA_RX | SERIAL_DMA_RX_FRAME; // silent for the set bit times
+    }
+    if ((cr1 & USART_CR1_CMIE) && (isr & USART_ISR_CMF)) {
+        LL_USART_ClearFlag_CM(uart);
+        events |= SERIAL_DMA_RX | SERIAL_DMA_RX_FRAME; // the match character came in
+    }
+    if (events & SERIAL_DMA_RX_FRAME) {
+        // CMF rises with the character's stop bit, when the DMA may not have taken it from RDR yet: its position
+        // once it has (RXNE clears as the DMA reads), so the frame ends with it and the next does not start with it
+        uint32_t wait = SERIAL_DMA_RXNE_WAIT;
+        while (SERIAL_DMA_RX_NOT_EMPTY(uart) && --wait != 0) {
+        }
+        uint32_t laps = 0;
+        obj->frame_position = serial_dma_rx_position(obj, &laps);
+        obj->frame_laps = laps;
     }
     if ((cr1 & USART_CR1_TCIE) && (isr & USART_ISR_TC)) {
         LL_USART_DisableIT_TC(uart);
@@ -201,6 +227,34 @@ static bool serial_dma_link_valid(const DMALinkInfo *link)
     return link->dmaIdx != 0;
 }
 
+/// The frame end's bits, with the UART off (CR2's ADD and RTOEN are written only then)
+static void serial_dma_frame_apply(serial_dma_t *obj)
+{
+    USART_TypeDef *uart = obj->uart;
+    LL_USART_DisableIT_RTO(uart);
+    LL_USART_DisableIT_CM(uart);
+#if defined(IS_LPUART_INSTANCE)
+    if (!IS_LPUART_INSTANCE(uart))
+#endif
+    {
+        LL_USART_DisableRxTimeout(uart);
+    }
+    if (obj->rx_ring == NULL) {
+        return;
+    }
+    if (obj->frame_mode == SERIAL_DMA_FRAME_TIMEOUT) {
+        LL_USART_SetRxTimeout(uart, obj->frame_value);
+        LL_USART_EnableRxTimeout(uart);
+        LL_USART_ClearFlag_RTO(uart);
+        LL_USART_EnableIT_RTO(uart);
+    } else if (obj->frame_mode == SERIAL_DMA_FRAME_MATCH) {
+        // 7-bit address detection: all of ADD[7:0] is the character compared (RM0351/RM0456, USART_CR2.ADD)
+        LL_USART_ConfigNodeAddress(uart, LL_USART_ADDRESS_DETECT_7B, obj->frame_value);
+        LL_USART_ClearFlag_CM(uart);
+        LL_USART_EnableIT_CM(uart);
+    }
+}
+
 static void serial_dma_release(serial_dma_t *obj)
 {
     if (obj->tx_handle.hdma != NULL) {
@@ -285,6 +339,8 @@ void serial_dma_detach(serial_dma_t *obj)
     USART_TypeDef *uart = obj->uart;
     LL_USART_DisableIT_IDLE(uart);
     LL_USART_DisableIT_TC(uart);
+    LL_USART_DisableIT_RTO(uart);
+    LL_USART_DisableIT_CM(uart);
     LL_USART_DisableDMAReq_TX(uart);
     LL_USART_DisableDMAReq_RX(uart);
     serial_dma_release(obj);
@@ -298,6 +354,7 @@ void serial_dma_reapply(serial_dma_t *obj)
     const bool receive = obj->rx_ring != NULL;
     // OVRDIS only with the UART off. The DMA reads every byte; an overrun would stop reception for nothing.
     LL_USART_Disable(uart);
+    serial_dma_frame_apply(obj);
     if (obj->transmit) {
         LL_USART_EnableDMAReq_TX(uart);
     }
@@ -415,6 +472,41 @@ uint32_t serial_dma_rx_position(serial_dma_t *obj, uint32_t *laps)
     }
     *laps = obj->rx_laps + (wrapped ? 1u : 0u);
     return obj->rx_size - remaining;
+}
+
+// ---- Frames --------------------------------------------------------------------------------------------------------
+
+int serial_dma_rx_frame(serial_dma_t *obj, serial_dma_frame_t mode, uint32_t value)
+{
+    if (obj->rx_ring == NULL) {
+        return -3;
+    }
+    if (mode == SERIAL_DMA_FRAME_TIMEOUT) {
+#if defined(IS_LPUART_INSTANCE)
+        if (IS_LPUART_INSTANCE(obj->uart)) {
+            return -1; // an LPUART has no receiver timeout
+        }
+#endif
+        if (value == 0 || value > 0xFFFFFFu) { // RTOR.RTO is 24 bits
+            return -2;
+        }
+    } else if (mode == SERIAL_DMA_FRAME_MATCH) {
+        if (value > 0xFFu) {
+            return -2;
+        }
+    } else if (mode != SERIAL_DMA_FRAME_NONE && mode != SERIAL_DMA_FRAME_IDLE) {
+        return -2;
+    }
+    obj->frame_mode = (uint8_t)mode;
+    obj->frame_value = value;
+    serial_dma_reapply(obj);
+    return 0;
+}
+
+uint32_t serial_dma_rx_frame_end(serial_dma_t *obj, uint32_t *laps)
+{
+    *laps = obj->frame_laps;
+    return obj->frame_position;
 }
 
 #endif // DEVICE_SERIAL_DMA

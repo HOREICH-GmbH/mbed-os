@@ -39,6 +39,10 @@
  * Receive runs until stopped: SERIAL_DMA_RX when the line goes idle after a burst and when the DMA passes the
  * ring's middle and end; where the DMA is, serial_dma_rx_position(). A line error (framing, noise, parity) is
  * cleared and reported, and reception goes on.
+ * Frames (optional, serial_dma_rx_frame()): the UART tells where a received frame ends - the line idle for a
+ * character, silent for a set number of bit times (receiver timeout: Modbus RTU's 3.5 characters), or a set
+ * character received (character match). SERIAL_DMA_RX_FRAME then, with where the DMA was at that moment,
+ * serial_dma_rx_frame_end() - captured in the interrupt, so a frame that follows at once is not glued on.
  *
  * Every function except attach and detach may be called with interrupts off; the handler is called from interrupt
  * context.
@@ -58,6 +62,15 @@ typedef struct serial_dma_s serial_dma_t;
 #define SERIAL_DMA_RX          (1u << 2) ///< bytes arrived: the line went idle, or the DMA passed the ring's middle or end
 #define SERIAL_DMA_RX_RESTART  (1u << 3) ///< the receive DMA failed and started again at the ring's start
 #define SERIAL_DMA_ERROR       (1u << 4) ///< a line error or a DMA transfer error, cleared
+#define SERIAL_DMA_RX_FRAME    (1u << 5) ///< a frame ended (serial_dma_rx_frame()): where, serial_dma_rx_frame_end()
+
+/** How the end of a received frame is told */
+typedef enum {
+    SERIAL_DMA_FRAME_NONE = 0, ///< not at all: a stream (the idle line still says SERIAL_DMA_RX)
+    SERIAL_DMA_FRAME_IDLE,     ///< the line idle for one character after a byte
+    SERIAL_DMA_FRAME_TIMEOUT,  ///< the line silent for a set number of bit times after a byte (receiver timeout)
+    SERIAL_DMA_FRAME_MATCH,    ///< a set character received (character match), the frame's last byte
+} serial_dma_frame_t;
 
 /** Called from interrupt context with SERIAL_DMA_* events */
 typedef void (*serial_dma_handler_t)(void *context, uint32_t events);
@@ -111,6 +124,18 @@ void serial_dma_rx_stop(serial_dma_t *obj);
 /** Where the receive DMA is, with interrupts off: the position in the ring, and in @p laps the rings completed since
  *  serial_dma_rx_start() - one whose interrupt is still pending included */
 uint32_t serial_dma_rx_position(serial_dma_t *obj, uint32_t *laps);
+
+/** How a received frame's end is told: SERIAL_DMA_FRAME_TIMEOUT @p value bit times of silence (1 to 0xFFFFFF),
+ *  SERIAL_DMA_FRAME_MATCH @p value the character (0 to 255); ignored for the others. Kept until changed, also across
+ *  serial_dma_reapply(). Sets the UART up anew, as serial_dma_reapply() - a byte under way is lost: before traffic.
+ *
+ * @return 0, or -1: this UART cannot (no receiver timeout on an LPUART), -2: @p value out of range, -3: no reception
+ */
+int serial_dma_rx_frame(serial_dma_t *obj, serial_dma_frame_t mode, uint32_t value);
+
+/** Where the receive DMA was when the last frame ended, as serial_dma_rx_position() - for SERIAL_DMA_RX_FRAME's
+ *  handler, which is called before the next frame can end */
+uint32_t serial_dma_rx_frame_end(serial_dma_t *obj, uint32_t *laps);
 
 #ifdef __cplusplus
 }
