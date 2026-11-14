@@ -196,6 +196,14 @@ public:
     off_t size() override;
     /** Waits (up to a second) until everything has left the line; polled with interrupts off */
     int sync() override;
+
+    /** sync(), and @p at_idle called the moment the last stop bit has left the line: from the UART's transmission
+     *  complete interrupt, or at once when nothing is under way. An RS485 driver enable dropped there loses no time to
+     *  a thread switch - a peer that answers at once is not talked over.
+     *
+     *  @return 0, -EAGAIN: not drained within the second (@p at_idle called all the same, then)
+     */
+    int drain_then(Callback<void()> at_idle);
     int set_blocking(bool blocking) override;
     bool is_blocking() const override
     {
@@ -247,6 +255,7 @@ private:
 #endif
     rtos::Mutex _mutex;
     Callback<void()> _sigio;
+    Callback<void()> _tx_idle; ///< drain_then()'s, called at the end of the drain - interrupt context
     const WhenFull _when_full;
     volatile uint32_t _errors = 0;
     bool _dma_ready = false;

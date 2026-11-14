@@ -541,6 +541,39 @@ int DMASerial::sync()
     return _tx_ring.busy() ? -EAGAIN : 0;
 }
 
+int DMASerial::drain_then(Callback<void()> at_idle)
+{
+    if (!_dma_ready || !_powered || !core_util_are_interrupts_enabled()) {
+        const int rc = sync();
+        if (at_idle) {
+            at_idle();
+        }
+        return rc;
+    }
+    // Checked and handed over in one step: the drain's end cannot come in between
+    core_util_critical_section_enter();
+    const bool busy = _tx_ring.busy();
+    if (busy) {
+        _tx_idle = at_idle;
+    }
+    core_util_critical_section_exit();
+    if (!busy) {
+        if (at_idle) {
+            at_idle(); // the line is idle already
+        }
+        return 0;
+    }
+    const int rc = sync();
+    core_util_critical_section_enter();
+    Callback<void()> left = _tx_idle; // still here: the drain did not end within the second
+    _tx_idle = nullptr;
+    core_util_critical_section_exit();
+    if (left) {
+        left();
+    }
+    return rc;
+}
+
 int DMASerial::set_blocking(bool blocking)
 {
     _blocking = blocking;
@@ -660,7 +693,16 @@ void DMASerial::on_dma(void *context, uint32_t events)
         if (events & SERIAL_DMA_TX_IDLE) {
             self->_tx_ring.idle();
         }
+        // The drain's end: drain_then()'s callback now, in this interrupt
+        Callback<void()> at_idle = nullptr;
+        if ((events & SERIAL_DMA_TX_IDLE) && !self->_tx_ring.busy() && self->_tx_idle) {
+            at_idle = self->_tx_idle;
+            self->_tx_idle = nullptr;
+        }
         core_util_critical_section_exit();
+        if (at_idle) {
+            at_idle();
+        }
 #if MBED_CONF_RTOS_PRESENT
         if (events & SERIAL_DMA_TX_CONSUMED) {
             self->_flags.set(room_flag);
