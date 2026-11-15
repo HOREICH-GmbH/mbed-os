@@ -149,6 +149,8 @@ struct ospi_s {
 #endif
 };
 
+#include "serial_dma_object.h"
+
 #ifdef __cplusplus
 }
 #endif

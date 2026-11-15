@@ -29,6 +29,9 @@ target_sources(mbed-core-sources
         source/DigitalIn.cpp
         source/DigitalInOut.cpp
         source/DigitalOut.cpp
+        source/DMARxRing.cpp
+        source/DMASerial.cpp
+        source/DMATxRing.cpp
         source/FlashIAP.cpp
         source/I2C.cpp
         source/I2CSlave.cpp
