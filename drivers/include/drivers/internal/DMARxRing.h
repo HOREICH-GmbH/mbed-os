@@ -98,10 +98,19 @@ private:
     size_t _size;
     uint32_t _written = 0; ///< bytes the DMA has written, wrapping at 2^32 like _read
     uint32_t _read = 0;
+    /// Where _read is in the buffer. Not _read % _size: a size that does not divide 2^32 (1000) would put the reader
+    /// elsewhere than the DMA once the count has wrapped
+    size_t _read_at = 0;
     uint32_t _overruns = 0;
 
     void drop_read_frames(); ///< frame ends the reader has passed (read(), an overrun) forgotten
     void end_at(uint32_t end); ///< a frame ends at @p end (as _written)
+    void advance_read(uint32_t count); ///< the reader @p count bytes on, _read_at with it
+    /// The buffer index of the byte counted @p at (as _written), not behind the reader
+    size_t index_of(uint32_t at) const
+    {
+        return (_read_at + (size_t)((at - _read) % (uint32_t)_size)) % _size;
+    }
 
     uint32_t _ends[max_frames] = {}; ///< as _written: where each waiting frame ended, the oldest at _ends_first
     size_t _ends_first = 0;

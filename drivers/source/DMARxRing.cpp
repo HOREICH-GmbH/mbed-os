@@ -25,6 +25,7 @@ void DMARxRing::reset()
 {
     _written = 0;
     _read = 0;
+    _read_at = 0;
     _ends_first = 0;
     _ends_count = 0;
     _last_end = 0;
@@ -45,8 +46,14 @@ void DMARxRing::update(uint32_t laps, size_t position)
         // Lapped: what was not read in time is gone - on from the oldest byte still in the ring
         const uint32_t lost = _written - _read - (uint32_t)_size;
         _overruns += lost;
-        _read += lost;
+        advance_read(lost);
     }
+}
+
+void DMARxRing::advance_read(uint32_t count)
+{
+    _read += count;
+    _read_at = (_read_at + (size_t)(count % (uint32_t)_size)) % _size;
 }
 
 size_t DMARxRing::read(uint8_t *out, size_t size)
@@ -55,11 +62,11 @@ size_t DMARxRing::read(uint8_t *out, size_t size)
     if (wanted == 0) {
         return 0;
     }
-    const size_t at = _read % _size;
+    const size_t at = _read_at;
     const size_t first = wanted < _size - at ? wanted : _size - at;
     memcpy(out, _buffer + at, first);
     memcpy(out + first, _buffer, wanted - first);
-    _read += (uint32_t)wanted;
+    advance_read((uint32_t)wanted);
     return wanted;
 }
 
@@ -89,7 +96,7 @@ void DMARxRing::frame_end_at_match(uint32_t laps, size_t position, uint8_t match
         from = end - (uint32_t)_size;
     }
     for (uint32_t at = from; (int32_t)(end - at) > 0; at++) {
-        if (_buffer[at % _size] == match) {
+        if (_buffer[index_of(at)] == match) {
             end_at(at + 1);
         }
     }
@@ -149,7 +156,7 @@ size_t DMARxRing::read_frame(uint8_t *out, size_t size, bool *truncated)
     const size_t length = end - _read;
     const size_t copied = read(out, length < size ? length : size);
     if (copied < length) {
-        _read = end; // the rest of a frame longer than the caller's buffer
+        advance_read(end - _read); // the rest of a frame longer than the caller's buffer
         if (truncated != nullptr) {
             *truncated = true;
         }
