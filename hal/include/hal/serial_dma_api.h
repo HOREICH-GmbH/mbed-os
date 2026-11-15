@@ -80,7 +80,7 @@ typedef enum {
 /** serial_dma_check()'s findings - 0: healthy */
 #define SERIAL_DMA_FAULT_RX_STOPPED  (1u << 0) ///< receiving, but the receive DMA channel is disabled
 #define SERIAL_DMA_FAULT_DMA_REQUEST (1u << 1) ///< the UART's DMA request bits (CR3 DMAT/DMAR) cleared
-#define SERIAL_DMA_FAULT_INTERRUPT   (1u << 2) ///< an interrupt enable (IDLE, the frame's) or the receiver timeout cleared
+#define SERIAL_DMA_FAULT_INTERRUPT   (1u << 2) ///< an interrupt enable (IDLE, line errors, the frame's) or the receiver timeout cleared
 #define SERIAL_DMA_FAULT_VECTOR      (1u << 3) ///< the UART's vector not this layer's, or its interrupt off in the NVIC
 #define SERIAL_DMA_FAULT_STRAY       (1u << 4) ///< SERIAL_DMA_STRAY_LIMIT interrupts in a row handled nothing: switched off
 

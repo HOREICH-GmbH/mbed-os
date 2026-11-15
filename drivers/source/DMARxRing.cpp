@@ -28,6 +28,7 @@ void DMARxRing::reset()
     _ends_first = 0;
     _ends_count = 0;
     _last_end = 0;
+    _scanned = 0;
 }
 
 void DMARxRing::update(uint32_t laps, size_t position)
@@ -67,7 +68,38 @@ void DMARxRing::frame_end(uint32_t laps, size_t position)
     if (_size == 0) {
         return;
     }
+    end_at(laps * (uint32_t)_size + (uint32_t)position);
+}
+
+void DMARxRing::frame_end_at_match(uint32_t laps, size_t position, uint8_t match)
+{
+    if (_size == 0) {
+        return;
+    }
     const uint32_t end = laps * (uint32_t)_size + (uint32_t)position;
+    // From the first byte not looked at - not before the last end, the reader, or the oldest byte still in the ring
+    uint32_t from = _scanned;
+    if ((int32_t)(_last_end - from) > 0) {
+        from = _last_end;
+    }
+    if ((int32_t)(_read - from) > 0) {
+        from = _read;
+    }
+    if ((int32_t)((end - (uint32_t)_size) - from) > 0) {
+        from = end - (uint32_t)_size;
+    }
+    for (uint32_t at = from; (int32_t)(end - at) > 0; at++) {
+        if (_buffer[at % _size] == match) {
+            end_at(at + 1);
+        }
+    }
+    if ((int32_t)(end - _scanned) > 0) {
+        _scanned = end;
+    }
+}
+
+void DMARxRing::end_at(uint32_t end)
+{
     if ((int32_t)(end - _last_end) <= 0 || (int32_t)(end - _read) <= 0) {
         return; // nothing since the last end, or nothing the reader has not passed: no frame
     }

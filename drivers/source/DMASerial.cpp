@@ -715,11 +715,16 @@ void DMASerial::on_dma(void *context, uint32_t events)
         core_util_critical_section_exit();
     }
     if (events & SERIAL_DMA_RX_FRAME) {
-        // Where the DMA was as the frame ended - captured in the UART's interrupt, this one
+        // Where the DMA was as the frame ended - captured in the UART's interrupt, this one. A match character's
+        // frame ends at the character: the interrupt may have run bytes later, one interrupt for several of them
         uint32_t laps = 0;
         const uint32_t position = serial_dma_rx_frame_end(&self->_dma, &laps);
         core_util_critical_section_enter();
-        self->_rx_ring.frame_end(laps, position);
+        if (self->_frame == Frame::Match) {
+            self->_rx_ring.frame_end_at_match(laps, position, (uint8_t)self->_frame_value);
+        } else {
+            self->_rx_ring.frame_end(laps, position);
+        }
         core_util_critical_section_exit();
     }
     if (events & (SERIAL_DMA_RX | SERIAL_DMA_RX_RESTART)) {

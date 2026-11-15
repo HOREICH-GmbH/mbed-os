@@ -31,7 +31,8 @@ namespace internal {
  *  Frames: where the DMA was when a frame ended (the line idle, a receiver timeout, a match character - the UART's
  *  interrupt) is queued, up to max_frames ends; read_frame() hands out the bytes up to the oldest one. Several frames
  *  arriving before the reader stay apart; with the queue full the oldest end is dropped - its frame and the next
- *  read as one, counted. Free of mbed and the MCU (host tests); called with interrupts off.
+ *  read as one, counted. A match character's frames end at the character itself (frame_end_at_match()): its interrupt
+ *  may come bytes after it. Free of mbed and the MCU (host tests); called with interrupts off.
  */
 class DMARxRing {
 public:
@@ -68,6 +69,12 @@ public:
      *  no frame. */
     void frame_end(uint32_t laps, size_t position);
 
+    /** A match character came in (Frame::Match), the DMA now at @p laps, @p position: a frame ends after every
+     *  @p match among the bytes written since the last call - the interrupt may run bytes after the character came,
+     *  and one interrupt may stand for several. Bytes after the last match stay for the next frame; none found, no
+     *  frame (an interrupt for a character already seen). */
+    void frame_end_at_match(uint32_t laps, size_t position, uint8_t match);
+
     /** Frames received and not read yet - whole ones, their end already written */
     size_t frames() const;
 
@@ -94,11 +101,13 @@ private:
     uint32_t _overruns = 0;
 
     void drop_read_frames(); ///< frame ends the reader has passed (read(), an overrun) forgotten
+    void end_at(uint32_t end); ///< a frame ends at @p end (as _written)
 
     uint32_t _ends[max_frames] = {}; ///< as _written: where each waiting frame ended, the oldest at _ends_first
     size_t _ends_first = 0;
     size_t _ends_count = 0;
     uint32_t _last_end = 0;
+    uint32_t _scanned = 0; ///< as _written: frame_end_at_match() has looked at the bytes before it
     uint32_t _frames_merged = 0;
 };
 

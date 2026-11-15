@@ -352,6 +352,8 @@ void serial_dma_detach(serial_dma_t *obj)
     LL_USART_DisableIT_TC(uart);
     LL_USART_DisableIT_RTO(uart);
     LL_USART_DisableIT_CM(uart);
+    LL_USART_DisableIT_ERROR(uart);
+    LL_USART_DisableIT_PE(uart);
     LL_USART_DisableDMAReq_TX(uart);
     LL_USART_DisableDMAReq_RX(uart);
     serial_dma_release(obj);
@@ -377,6 +379,11 @@ void serial_dma_reapply(serial_dma_t *obj)
     if (receive) {
         LL_USART_ClearFlag_IDLE(uart);
         LL_USART_EnableIT_IDLE(uart);
+        // A line error its own interrupt: with DMAR set, framing and noise raise none without EIE, and a parity error
+        // none without PEIE - they were seen only when an idle line's interrupt found the flag still up
+        LL_USART_WriteReg(uart, ICR, USART_ICR_FECF | USART_ICR_NECF | USART_ICR_PECF | USART_ICR_ORECF);
+        LL_USART_EnableIT_ERROR(uart);
+        LL_USART_EnableIT_PE(uart);
     }
     NVIC_SetVector(obj->irq, (uint32_t)serial_dma_vectors[obj->index]);
     obj->stray_run = 0;
@@ -543,7 +550,7 @@ uint32_t serial_dma_check(serial_dma_t *obj)
         faults |= SERIAL_DMA_FAULT_DMA_REQUEST;
     }
     if (obj->rx_ring != NULL) {
-        bool interrupts = (cr1 & USART_CR1_IDLEIE) != 0;
+        bool interrupts = (cr1 & USART_CR1_IDLEIE) != 0 && (cr1 & USART_CR1_PEIE) != 0 && (cr3 & USART_CR3_EIE) != 0;
         if (obj->frame_mode == SERIAL_DMA_FRAME_TIMEOUT) {
             interrupts = interrupts && (cr1 & USART_CR1_RTOIE) != 0 && (cr2 & USART_CR2_RTOEN) != 0;
         } else if (obj->frame_mode == SERIAL_DMA_FRAME_MATCH) {
