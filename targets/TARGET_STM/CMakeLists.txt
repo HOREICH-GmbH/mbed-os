@@ -48,6 +48,7 @@ target_sources(mbed-stm
         reset_reason.c
         rtc_api.c
         serial_api.c
+        stm_serial_dma.c
         sleep.c
         stm_spi_api.c
         trng_api.c

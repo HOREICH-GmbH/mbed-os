@@ -76,6 +76,7 @@
 #include "drivers/RawCAN.h"
 #include "drivers/UnbufferedSerial.h"
 #include "drivers/BufferedSerial.h"
+#include "drivers/DMASerial.h"
 #include "drivers/FlashIAP.h"
 #include "drivers/MbedCRC.h"
 #include "drivers/QSPI.h"

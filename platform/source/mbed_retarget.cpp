@@ -37,6 +37,7 @@
 #include "platform/mbed_critical.h"
 #include "platform/mbed_poll.h"
 #include "drivers/BufferedSerial.h"
+#include "drivers/DMASerial.h"
 #include "hal/us_ticker_api.h"
 #include "hal/lp_ticker_api.h"
 #include "hal/static_pinmap.h"
@@ -349,6 +350,22 @@ MBED_WEAK FileHandle *mbed::mbed_override_console(int fd)
 static FileHandle *default_console()
 {
 #if MBED_CONF_TARGET_CONSOLE_UART && DEVICE_SERIAL
+
+#  if MBED_CONF_PLATFORM_STDIO_DMA_SERIAL && DEVICE_SERIAL_DMA
+    static uint8_t dma_console_tx[MBED_CONF_PLATFORM_STDIO_DMA_SERIAL_TXBUF_SIZE];
+#   if MBED_CONF_PLATFORM_STDIO_DMA_SERIAL_RXBUF_SIZE > 0
+    static uint8_t dma_console_rx[MBED_CONF_PLATFORM_STDIO_DMA_SERIAL_RXBUF_SIZE];
+    static DMASerial dma_console(CONSOLE_TX, CONSOLE_RX, MBED_CONF_PLATFORM_STDIO_BAUD_RATE, dma_console_tx, sizeof(dma_console_tx),
+                                 dma_console_rx, sizeof(dma_console_rx), DMASerial::WhenFull::Drop);
+#   else
+    static DMASerial dma_console(CONSOLE_TX, NC, MBED_CONF_PLATFORM_STDIO_BAUD_RATE, dma_console_tx, sizeof(dma_console_tx),
+                                 nullptr, 0, DMASerial::WhenFull::Drop);
+#   endif
+    if (dma_console.is_dma()) {
+        return &dma_console;
+    }
+    // No DMA for the console's UART: it gave the UART back, the console as configured otherwise
+#  endif
 
 #  if MBED_CONF_PLATFORM_STDIO_BUFFERED_SERIAL
     static const serial_pinmap_t console_pinmap = get_uart_pinmap(CONSOLE_TX, CONSOLE_RX);

@@ -3729,6 +3729,7 @@ mode is recommended for target MCUs with small amounts of flash and RAM.",
             "FLASH",
             "MPU",
             "SERIAL_ASYNCH",
+            "SERIAL_DMA",
             "TRNG"
         ],
         "is_mcu_family_target": true
@@ -4419,6 +4420,7 @@ mode is recommended for target MCUs with small amounts of flash and RAM.",
             "MPU",
             "TRNG",
             "SERIAL_ASYNCH",
+            "SERIAL_DMA",
             "SPI_32BIT_WORDS"
         ],
         "is_mcu_family_target": true
